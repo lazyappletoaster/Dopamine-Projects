@@ -6,6 +6,8 @@ A rootless semi-untethered jailbreak for iOS 15.0 - 17.3.1 (arm64e), iOS 15.0 - 
 
 This fork allows Dopamine to install Cydia and Installer (rootless) instead of Sileo and Zebra. Cydia and Installer are modified to support rootless architecture.
 
+DISCLAIMER: Cydia is built on Sileo’s architecture and Sileo’s License still exists in source code /Application/Dopamine/Resources/
+
 When you jailbreak for the first time, the same Install Sileo or Zebra menu appears. Remember: Sileo = Cydia and Zebra = Installer in this build. This will be updated in the future.
 
 CURRENT STATUS: Cydia and Installer fully works and installs tweaks.
