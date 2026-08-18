@@ -16,4 +16,6 @@ INSTALL FROM THE LATEST WORKFLOW INSIDE ACTIONS
 
 Please note that all issues related to version support will be deleted without response.
 
+SAURIK IF YOU’RE READING THIS, KEEP IN MIND THAT ME AND SBIGNER ARE GOING TO CREATE A LEGITIMATE ROOTLESS CYDIA SOON AND YOU CAN PLACE A TAKEDOW ON THIS CYDIA IF YOU WANT THIS WAS SOME PROJECT I DID WHEN I WAS BORED
+
 Official website / download: https://ellekit.space/dopamine/
