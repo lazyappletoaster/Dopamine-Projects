@@ -10,6 +10,8 @@ When you jailbreak for the first time, the same Install Sileo or Zebra menu appe
 
 CURRENT STATUS: Cydia and Installer fully works and installs tweaks.
 
+INSTALL FROM THE LATEST WORKFLOW INSIDE ACTIONS
+
 Please note that all issues related to version support will be deleted without response.
 
 Official website / download: https://ellekit.space/dopamine/
