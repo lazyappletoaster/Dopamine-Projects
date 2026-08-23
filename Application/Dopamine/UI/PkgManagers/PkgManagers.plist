@@ -4,7 +4,7 @@
 <array>
 	<dict>
 		<key>Display Name</key>
-		<string>Sileo</string>
+		<string>Cydia</string>
 		<key>Key</key>
 		<string>org.coolstar.SileoStore</string>
 		<key>Icon</key>
@@ -14,7 +14,7 @@
 	</dict>
 	<dict>
 		<key>Display Name</key>
-		<string>Zebra</string>
+		<string>Installer</string>
 		<key>Key</key>
 		<string>xyz.willy.Zebra</string>
 		<key>Icon</key>
