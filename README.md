@@ -10,7 +10,7 @@ DISCLAIMER: Cydia is built on Sileo’s architecture and Sileo’s License still
 
 When you jailbreak for the first time, the same Install Sileo or Zebra menu appears. Remember: Sileo = Cydia and Zebra = Installer in this build. This will be updated in the future.
 
-CURRENT STATUS: Cydia and Installer fully works and installs tweaks.
+CURRENT STATUS: Cydia currently can’t install Ellekit for some reason. You must install the sileo.deb [here](https://github.com/Sileo/Sileo/releases/download/2.5.1/org.coolstar.sileo_2.5.1_iphoneos-arm64.deb) and import it to Cydia.
 
 INSTALL FROM THE LATEST WORKFLOW INSIDE ACTIONS
 [![Dopamine: build and upload](https://github.com/lazyappletoaster/Cydamine/actions/workflows/main.yml/badge.svg)](https://github.com/lazyappletoaster/Cydamine/actions/workflows/main.yml)
