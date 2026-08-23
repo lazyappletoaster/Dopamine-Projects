@@ -8,8 +8,6 @@ This fork allows Dopamine to install Cydia and Installer (rootless) instead of S
 
 DISCLAIMER: Cydia is built on Sileo’s architecture and Sileo’s License still exists in source code /Application/Dopamine/Resources/
 
-When you jailbreak for the first time, the same Install Sileo or Zebra menu appears. Remember: Sileo = Cydia and Zebra = Installer in this build. This will be updated in the future.
-
 CURRENT STATUS: Cydia currently can’t install Ellekit for some reason. You must install the sileo.deb [here](https://github.com/Sileo/Sileo/releases/download/2.5.1/org.coolstar.sileo_2.5.1_iphoneos-arm64.deb) and import it to Cydia.
 
 INSTALL FROM THE LATEST WORKFLOW INSIDE ACTIONS
