@@ -99,12 +99,13 @@ static int darksword_physwritebuf_wrapper(uint64_t paddr, const void *input, siz
     return -1;
 }
 
-// Global primitives structure for libjailbreak registration
-static struct kprimitives gDarkSwordPrimitives = {
+// Global primitives structure matching primitives_external.h
+static struct kernel_primitives gDarkSwordPrimitives = {
     .kreadbuf = darksword_kreadbuf_wrapper,
     .kwritebuf = darksword_kwritebuf_wrapper,
     .physreadbuf = darksword_physreadbuf_wrapper,
     .physwritebuf = darksword_physwritebuf_wrapper,
+    .krwMinSafeReadSize = 1,
 };
 
 @implementation DOJailbreaker
@@ -257,8 +258,8 @@ static struct kprimitives gDarkSwordPrimitives = {
         return [NSError errorWithDomain:JBErrorDomain code:JBErrorCodeFailedExploitation userInfo:@{NSLocalizedDescriptionKey:@"Failed to resolve required DarkSword primitive symbols dynamically"}];
     }
 
-    // Safely initialize primitive dispatch tables and translation layers
-    init_kprimitives(&gDarkSwordPrimitives);
+    // Safely initialize primitive dispatch tables and translation layers via external primitives struct
+    gPrimitives = gDarkSwordPrimitives;
     jbinfo_initialize_boot_constants();
     libjailbreak_translation_init();
     libjailbreak_IOSurface_primitives_init();
