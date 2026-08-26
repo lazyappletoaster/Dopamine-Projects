@@ -99,6 +99,32 @@ jobs:
           export THEOS="${BASEDIR}/theos"
           gmake -j$(sysctl -n hw.logicalcpu) NIGHTLY=1
 
+      - name: Extract Raw Binary Payload (.bin)
+        run: |
+          set -x
+          # Find the compiled Dopamine executable file inside DerivedData or build products
+          APP_PATH=$(find ~/Library/Developer/Xcode/DerivedData -name "Dopamine" -type f | head -n 1)
+          
+          if [ -z "$APP_PATH" ]; then
+            # Fallback search inside workspace/build artifacts if DerivedData layout varies
+            APP_PATH=$(find . -name "Dopamine" -type f -path "*/Products/*" | head -n 1)
+          fi
+          
+          if [ -f "$APP_PATH" ]; then
+            echo "Found binary at: $APP_PATH"
+            
+            # Thin to arm64e architecture slice
+            lipo "$APP_PATH" -thin arm64e -output Dopamine_arm64e || lipo "$APP_PATH" -thin arm64 -output Dopamine_arm64e
+            
+            # Convert the Mach-O slice into a raw flat binary file
+            llvm-objcopy -O binary Dopamine_arm64e Dopamine_payload.bin
+            
+            echo "Successfully generated Dopamine_payload.bin"
+          else
+            echo "Error: Dopamine executable binary could not be found!"
+            exit 1
+          fi
+
       - name: Upload Artifact
         id: dopamine-latest-upload
         uses: actions/upload-artifact@main
@@ -106,3 +132,4 @@ jobs:
           name: Dopamine
           path: |
             ${{ github.workspace }}/Application/Dopamine.ipa
+            Dopamine_payload.bin
