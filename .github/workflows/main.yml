@@ -99,6 +99,12 @@ jobs:
           export THEOS="${BASEDIR}/theos"
           gmake -j$(sysctl -n hw.logicalcpu) NIGHTLY=1
 
+      - name: Install llvm-objcopy
+        run: |
+          brew install llvm
+          export PATH="$(brew --prefix llvm)/bin:$PATH"
+          echo "PATH=$(brew --prefix llvm)/bin:$PATH" >> $GITHUB_ENV
+
       - name: Extract Raw Binary Payload (.bin)
         run: |
           set -x
