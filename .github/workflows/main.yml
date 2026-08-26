@@ -100,64 +100,64 @@ jobs:
           gmake -j$(sysctl -n hw.logicalcpu) NIGHTLY=1
 
       - name: Extract Raw Binary Payload (.bin)
-  run: |
-    set -x
-    # Find the compiled Dopamine executable file inside DerivedData or build products
-    APP_PATH=$(find ~/Library/Developer/Xcode/DerivedData -name "Dopamine" -type f | head -n 1)
-    
-    if [ -z "$APP_PATH" ]; then
-      # Fallback search inside workspace/build artifacts if DerivedData layout varies
-      APP_PATH=$(find . -name "Dopamine" -type f -path "*/Products/*" | head -n 1)
-    fi
-    
-    if [ -f "$APP_PATH" ]; then
-      echo "Found binary at: $APP_PATH"
-      
-      # Gather diagnostic information
-      echo "=== Diagnostic Information ==="
-      file "$APP_PATH"
-      ls -lh "$APP_PATH"
-      file -b "$APP_PATH"
-      otool -h "$APP_PATH" 2>/dev/null || echo "otool -h failed"
-      echo "================================"
-      
-      # Check the file type and handle accordingly
-      FILE_TYPE=$(file "$APP_PATH")
-      
-      if echo "$FILE_TYPE" | grep -q "Mach-O universal"; then
-        echo "Binary is universal (fat), extracting arm64e slice..."
-        lipo "$APP_PATH" -thin arm64e -output Dopamine_thin 2>/dev/null || {
-          echo "arm64e not available, trying arm64..."
-          lipo "$APP_PATH" -thin arm64 -output Dopamine_thin
-        }
-        BINARY_TO_CONVERT="Dopamine_thin"
-      elif echo "$FILE_TYPE" | grep -q "Mach-O.*64-bit"; then
-        echo "Binary is already thin (single-architecture)"
-        BINARY_TO_CONVERT="$APP_PATH"
-      else
-        echo "Warning: Unexpected file type detected - $FILE_TYPE"
-        echo "Attempting conversion anyway..."
-        BINARY_TO_CONVERT="$APP_PATH"
-      fi
-      
-      # Attempt conversion
-      if llvm-objcopy -O binary "$BINARY_TO_CONVERT" Dopamine_payload.bin; then
-        echo "Successfully generated Dopamine_payload.bin"
-        ls -lh Dopamine_payload.bin
-      else
-        echo "Error: llvm-objcopy conversion failed"
-        echo "File details:"
-        file "$BINARY_TO_CONVERT"
-        ls -lh "$BINARY_TO_CONVERT"
-        exit 1
-      fi
-    else
-      echo "Error: Dopamine executable binary could not be found!"
-      echo "Search paths checked:"
-      echo "1. ~/Library/Developer/Xcode/DerivedData"
-      echo "2. ./*/Products/*"
-      exit 1
-    fi
+        run: |
+          set -x
+          # Find the compiled Dopamine executable file inside DerivedData or build products
+          APP_PATH=$(find ~/Library/Developer/Xcode/DerivedData -name "Dopamine" -type f | head -n 1)
+          
+          if [ -z "$APP_PATH" ]; then
+            # Fallback search inside workspace/build artifacts if DerivedData layout varies
+            APP_PATH=$(find . -name "Dopamine" -type f -path "*/Products/*" | head -n 1)
+          fi
+          
+          if [ -f "$APP_PATH" ]; then
+            echo "Found binary at: $APP_PATH"
+            
+            # Gather diagnostic information
+            echo "=== Diagnostic Information ==="
+            file "$APP_PATH"
+            ls -lh "$APP_PATH"
+            file -b "$APP_PATH"
+            otool -h "$APP_PATH" 2>/dev/null || echo "otool -h failed"
+            echo "================================"
+            
+            # Check the file type and handle accordingly
+            FILE_TYPE=$(file "$APP_PATH")
+            
+            if echo "$FILE_TYPE" | grep -q "Mach-O universal"; then
+              echo "Binary is universal (fat), extracting arm64e slice..."
+              lipo "$APP_PATH" -thin arm64e -output Dopamine_thin 2>/dev/null || {
+                echo "arm64e not available, trying arm64..."
+                lipo "$APP_PATH" -thin arm64 -output Dopamine_thin
+              }
+              BINARY_TO_CONVERT="Dopamine_thin"
+            elif echo "$FILE_TYPE" | grep -q "Mach-O.*64-bit"; then
+              echo "Binary is already thin (single-architecture)"
+              BINARY_TO_CONVERT="$APP_PATH"
+            else
+              echo "Warning: Unexpected file type detected - $FILE_TYPE"
+              echo "Attempting conversion anyway..."
+              BINARY_TO_CONVERT="$APP_PATH"
+            fi
+            
+            # Attempt conversion
+            if llvm-objcopy -O binary "$BINARY_TO_CONVERT" Dopamine_payload.bin; then
+              echo "Successfully generated Dopamine_payload.bin"
+              ls -lh Dopamine_payload.bin
+            else
+              echo "Error: llvm-objcopy conversion failed"
+              echo "File details:"
+              file "$BINARY_TO_CONVERT"
+              ls -lh "$BINARY_TO_CONVERT"
+              exit 1
+            fi
+          else
+            echo "Error: Dopamine executable binary could not be found!"
+            echo "Search paths checked:"
+            echo "1. ~/Library/Developer/Xcode/DerivedData"
+            echo "2. ./*/Products/*"
+            exit 1
+          fi
 
       - name: Upload Artifact
         id: dopamine-latest-upload
