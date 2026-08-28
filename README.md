@@ -12,7 +12,6 @@ LEGAL DISCLAIMER: The modified Cydia is from [this site](https://repo.cypwn.xyz/
 
 CURRENT STATUS: Cydia currently can’t install Ellekit for some reason. You must install the sileo.deb [here](https://github.com/Sileo/Sileo/releases/download/2.5.1/org.coolstar.sileo_2.5.1_iphoneos-arm64.deb) and import it to Cydia.
 
-INSTALL FROM THE LATEST WORKFLOW INSIDE ACTIONS
-[![Dopamine: build and upload](https://github.com/lazyappletoaster/Cydamine/actions/workflows/main.yml/badge.svg)](https://github.com/lazyappletoaster/Cydamine/actions/workflows/main.yml)
+INSTALL FROM RELEASES
 
 Official website / download: https://ellekit.space/dopamine/
