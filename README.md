@@ -17,6 +17,8 @@ Coming Soon
 
 dopamine-clipwire: Dopamine will support iOS 26.1-26.5.2 (A12-A13) and supposedly also iOS 27 Developer Beta 1-4 (A12-A13) in this release, coming soon! ✌🏻 
 
-dopamine-trustcachev2: Edited Dopamine Trustcache patcher to disable and bypass LaunchConstraints. Might help with FakeFS rootful jailbreak development. Stay tuned.
+DO NOT MIND:
+
+Dopamine3-Rootful: Dopamine-Rootful by ghh-jb but it has edited Dopamine TrustCache v2 patcher to disable and bypass LaunchConstraints to support all iOS versions. It’s currently a testing playground. Finished version will be published by ghh-jb…
 
 Take care and have fun!
