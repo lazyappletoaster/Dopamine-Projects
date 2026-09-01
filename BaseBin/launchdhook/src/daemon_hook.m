@@ -1,5 +1,4 @@
 #import <xpc/xpc.h>
-#import <xpc_private.h>
 #import <sys/types.h>
 #import <sys/stat.h>
 #import <unistd.h>
@@ -7,7 +6,8 @@
 #import <mach-o/dyld.h>
 #import <libjailbreak/libjailbreak.h>
 #import <Foundation/Foundation.h>
-#import <litehook.h>
+
+extern xpc_object_t xpc_create_from_plist(const void *buf, size_t len);
 
 void xpc_dictionary_add_launch_daemon_plist_at_path(xpc_object_t xdict, const char *path)
 {
@@ -47,12 +47,25 @@ xpc_object_t xpc_dictionary_get_value_hook(xpc_object_t xdict, const char *key)
 					xpc_dictionary_add_launch_daemon_plist_at_path(origXvalue, [JBROOT_PATH(@"/Library/LaunchDaemons") stringByAppendingPathComponent:daemonPlistName].fileSystemRepresentation);
 				}
 			}
+			for (NSString *daemonPlistName in [[NSFileManager defaultManager] contentsOfDirectoryAtPath:@"/System/Library/LaunchDaemons/" error:nil]) {
+				if ([daemonPlistName.pathExtension isEqualToString:@"plist"]) {
+					xpc_dictionary_add_launch_daemon_plist_at_path(origXvalue, [@"/System/Library/LaunchDaemons/"stringByAppendingPathComponent:daemonPlistName].fileSystemRepresentation);
+				}
+			}
+			for (NSString *daemonPlistName in [[NSFileManager defaultManager] contentsOfDirectoryAtPath:@"/Library/LaunchDaemons" error:nil]) {
+				if ([daemonPlistName.pathExtension isEqualToString:@"plist"]) {
+					xpc_dictionary_add_launch_daemon_plist_at_path(origXvalue, [@"/Library/LaunchDaemons" stringByAppendingPathComponent:daemonPlistName].fileSystemRepresentation);
+				}
+			}
 		}
 	}
 	else if (!strcmp(key, "Paths")) {
 		if (xpc_get_type(origXvalue) == XPC_TYPE_ARRAY) {
 			xpc_array_set_string(origXvalue, XPC_ARRAY_APPEND, JBROOT_PATH("/basebin/LaunchDaemons"));
 			xpc_array_set_string(origXvalue, XPC_ARRAY_APPEND, JBROOT_PATH("/Library/LaunchDaemons"));
+			xpc_array_set_string(origXvalue, XPC_ARRAY_APPEND, "/Library/LaunchDaemons");
+			xpc_array_set_string(origXvalue, XPC_ARRAY_APPEND, "/System/Library/LaunchDaemons/");
+
 		}
 	}
 	else if (!strcmp(key, "com.apple.private.xpc.launchd.userspace-reboot")) {
@@ -72,6 +85,5 @@ xpc_object_t xpc_dictionary_get_value_hook(xpc_object_t xdict, const char *key)
 
 void initDaemonHooks(void)
 {
-	xpc_dictionary_get_value_orig = xpc_dictionary_get_value;
-	litehook_rebind_symbol(LITEHOOK_REBIND_GLOBAL, xpc_dictionary_get_value, (void *)xpc_dictionary_get_value_hook, NULL);
+	MSHookFunction(&xpc_dictionary_get_value, (void *)xpc_dictionary_get_value_hook, (void **)&xpc_dictionary_get_value_orig);
 }
