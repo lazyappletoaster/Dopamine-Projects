@@ -2,7 +2,6 @@
 #import <Foundation/Foundation.h>
 #import <libjailbreak/libjailbreak.h>
 #import <sys/mount.h>
-#import <libjailbreak/stock_fixes.h>
 
 SInt32 CFUserNotificationDisplayAlert(CFTimeInterval timeout, CFOptionFlags flags, CFURLRef iconURL, CFURLRef soundURL, CFURLRef localizationURL, CFStringRef alertHeader, CFStringRef alertMessage, CFStringRef defaultButtonTitle, CFStringRef alternateButtonTitle, CFStringRef otherButtonTitle, CFOptionFlags *responseFlags) API_AVAILABLE(ios(3.0));
 
@@ -74,10 +73,13 @@ int protection_set_active(bool active)
 bool fakelib_is_mounted(void)
 {
 	struct statfs fsb;
-    if (statfs("/usr/lib", &fsb) != 0) return NO;
-    return strcmp(fsb.f_mntonname, "/usr/lib") == 0;
+	return false;
+    // if (statfs("/usr/lib", &fsb) != 0) return NO;
+    // return strcmp(fsb.f_mntonname, "/usr/lib") == 0;
+    // return true;
 }
 
+// Rootful
 int fakelib_set_mounted(bool mounted)
 {
 	int r = 0;
@@ -89,7 +91,55 @@ int fakelib_set_mounted(bool mounted)
 			r = unmount_unsandboxed("/usr/lib", MNT_FORCE);
 		}
 	}
-	return r;
+	// idea:
+	// 0) Load trustcache into the kernel
+	// 1) Mount directories in / as RW
+	// 2) Required directories for rootful jailbreak:
+	//		/sbin
+	//		/bin
+	//		/Library
+	//		/private/etc
+	//		/Applications
+	execute_unsandboxed(^{
+		int ret;
+		NSLog(@"[mount] Using APFS method");
+
+		ret = exec_cmd(JBROOT_PATH("/basebin/bootstrapfs"), "create", "/usr", "Usr", NULL); // /usr
+		ret = exec_cmd(JBROOT_PATH("/basebin/bootstrapfs"), "create", "/Library", "Library", NULL); // /Library
+		ret = exec_cmd(JBROOT_PATH("/basebin/bootstrapfs"), "create", "/Applications", "Applications", NULL); // /Applications
+		ret = exec_cmd(JBROOT_PATH("/basebin/bootstrapfs"), "create", "/private/etc", "Etc",  NULL); // /private/etc
+		ret = exec_cmd(JBROOT_PATH("/basebin/bootstrapfs"), "create", "/sbin", "Sbin",  NULL); // /sbin
+		ret = exec_cmd(JBROOT_PATH("/basebin/bootstrapfs"), "create", "/bin", "Bin", NULL); // /bin
+		NSLog(@"[mount:end] returned: %i", ret);
+		NSLog(@"[mount] MOUNTED!");
+		sleep(1);
+	});
+
+
+
+	// NSLog(@"[mount:start] Starting mount!");
+
+	// // if (access(JBROOT_PATH("/basebin/makerw"), F_OK) == 0) {
+	// execute_unsandboxed(^{
+	// 	int ret;
+	// 	NSLog(@"[mount] Using TMPFS method");
+
+	// 	ret = exec_cmd(JBROOT_PATH("/basebin/makerw"), "create","/usr", NULL); // /usr
+	// 	ret = exec_cmd(JBROOT_PATH("/basebin/makerw"), "create","/Library", NULL); // /Library
+	// 	ret = exec_cmd(JBROOT_PATH("/basebin/makerw"), "create","/Applications", NULL); // /Applications
+	// 	ret = exec_cmd(JBROOT_PATH("/basebin/makerw"), "create","/private/etc", NULL); // /private/etc
+	// 	ret = exec_cmd(JBROOT_PATH("/basebin/makerw"), "create","/sbin", NULL); // /sbin
+	// 	ret = exec_cmd(JBROOT_PATH("/basebin/makerw"), "create","/bin", NULL); // /bin
+
+	// 	NSLog(@"[mount:end] returned: %i", ret);
+	// 	NSLog(@"[mount] MOUNTED!");
+	// 	sleep(1);
+	// });
+	// }
+
+
+
+	return 0;
 }
 
 int jbctl_handle_internal(const char *command, int argc, char* argv[])
