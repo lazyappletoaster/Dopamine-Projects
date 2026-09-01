@@ -35,6 +35,24 @@ bool gInEarlyBoot = true;
 void abort_with_reason(uint32_t reason_namespace, uint64_t reason_code, const char *reason_string, uint64_t reason_flags);
 extern void systemwide_domain_set_enabled(bool enabled);
 
+// =============================================================================
+// LAUNCHCONSTRAINT BYPASS HOOK
+// =============================================================================
+int (*posix_spawn_orig)(pid_t *restrict pid, const char *restrict path, const posix_spawn_file_actions_t *file_actions, const posix_spawnattr_t *restrict attrp, char *const argv[restrict], char *const envp[restrict]) = NULL;
+
+int posix_spawn_hook_launchconstraints(pid_t *restrict pid, const char *restrict path, const posix_spawn_file_actions_t *file_actions, const posix_spawnattr_t *restrict attrp, char *const argv[restrict], char *const envp[restrict])
+{
+	posix_spawnattr_t attr = attrp ? *attrp : NULL;
+	
+	if (attr) {
+		// Strip posix_spawnattr flags enforcing strict LaunchConstraints / Entitlement checks (0x2000 | 0x4000 | 0x8000)
+		*(uint32_t *)((char *)attr + 0x04) &= ~(0x2000 | 0x4000 | 0x8000);
+	}
+
+	return posix_spawn_orig(pid, path, file_actions, attrp, argv, envp);
+}
+// =============================================================================
+
 // Boot logo drawing invokes some IOKit stuff that seems to initialize os_log / asl
 // We need to temporarily set asl_enabled to false so that it will skip that initialization
 // If we don't do this and it does the initialization, we will cause an assert in _os_log_simple_reinit_4launchd later
@@ -107,7 +125,7 @@ __attribute__((constructor)) static void initializer(void)
 	}
 
 	bool firstLoad = false;
-	if (getenv("DOPAMINE_INITIALIZED") != 0) {
+	if (getenv("DOPAMINE_INITIALIZED") != NULL) {
 		// If Dopamine was initialized before, we assume we're coming from a userspace reboot
 
 		// Stock bug: These prefs wipe themselves after a reboot (they contain a boot time and this is matched when they're loaded)
@@ -149,7 +167,7 @@ __attribute__((constructor)) static void initializer(void)
 	cs_allow_invalid(proc_self(), false);
 
 	if (__builtin_available(iOS 19.0, *)) {
-		// On iOS 26+, hooks have to be applied through hookd
+		// On newer OS versions, hooks have to be applied through hookd
 		hookd_provider_init();
 		litehook_hook_memory = litehook_hook_memory_hookd;
 		litehook_hook_function(mach_vm_protect, mach_vm_protect_fixed);
@@ -162,10 +180,14 @@ __attribute__((constructor)) static void initializer(void)
 	initIPCHooks();
 	initJetsamHook();
 
+	// Apply LaunchConstraint bypass hook directly via litehook
+	posix_spawn_orig = posix_spawn;
+	litehook_rebind_symbol(LITEHOOK_REBIND_GLOBAL, (void *)posix_spawn, (void *)posix_spawn_hook_launchconstraints, NULL);
+
 	sysctlbyname_orig = sysctlbyname;
 	litehook_rebind_symbol(LITEHOOK_REBIND_GLOBAL, (void *)sysctlbyname, (void *)sysctlbyname_hook, NULL);
 
-	if (getenv("DOPAMINE_IS_HIDDEN") != 0) {
+	if (getenv("DOPAMINE_IS_HIDDEN") != NULL) {
 		// If the jailbreak is currently hidden, fakelib had to be mounted again before the userspace reboot
 		// Now that the userspace reboot is over, we can unmount it again
 
