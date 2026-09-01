@@ -1,15 +1,6 @@
-#all: mktemp choma
-
-#mktemp:
-#	rm -rf .build-dir
-#	mkdir .build-dir
-
-#choma:
-#	$(MAKE) -C ChOma TARGET=ios DISABLE_SIGNING=1 DYLIB_LDFLAGS="-install_name @loader_path/libchoma.dylib" $@
-
 all: basebin.tar
 
-subprojects: ChOma XPF MachOMerger opainject libjailbreak systemhook forkfix launchdhook hookd boomerang jbctl idownloadd watchdoghook rootlesshooks dopamine
+subprojects: ChOma XPF MachOMerger opainject libjailbreak systemhook forkfix launchdhook hookd boomerang jbctl idownloadd watchdoghook rootlesshooks dopamine bootstrapfs makerw
 
 ChOma: .build .include
 	@$(MAKE) -C ChOma TARGET=ios DISABLE_SIGNING=1 DISABLE_TESTS=1 DYLIB_LDFLAGS="-install_name @loader_path/libchoma.dylib"
@@ -79,6 +70,14 @@ dopamine: .build .include libjailbreak XPF ChOma
 	$(MAKE) -C dopamine
 	@cp dopamine/dopamine .build
 
+bootstrapfs: .build .include libjailbreak
+	$(MAKE) -C bootstrapfs
+	@cp bootstrapfs/.theos/obj/debug/bootstrapfs .build || cp bootstrapfs/.theos/obj/bootstrapfs .build
+
+makerw: .build .include libjailbreak
+	$(MAKE) -C makerw
+	@cp makerw/.theos/obj/debug/makerw .build || cp makerw/.theos/obj/makerw .build
+
 .build:
 	rm -rf .build
 	mkdir -p .build
@@ -89,7 +88,6 @@ dopamine: .build .include libjailbreak XPF ChOma
 	rm -rf .include
 	mkdir -p .include
 	cp -r _external/include/* .include
-# If the SDK already ships XPC (it does so in iOS 17.4+), remove the local copy of it
 ifneq (,$(wildcard $(shell xcrun --sdk iphoneos --show-sdk-path)/usr/include/xpc.modulemap))
 	rm -rf .include/xpc
 endif
@@ -98,7 +96,6 @@ basebin.tc: subprojects
 	trustcache create .build/basebin.tc .build
 	cp .build/basebin.tc basebin.tc
 
-# dyldhook dylibs do not need to be added to the basebin trustcache
 dyldhook: basebin.tc
 	$(MAKE) -C dyldhook
 	@cp dyldhook/*.dylib .build
@@ -116,6 +113,7 @@ clean:
 	@$(MAKE) -C systemhook $@
 	@$(MAKE) -C forkfix $@
 	@$(MAKE) -C launchdhook $@
+	@$(MAKE) -C hookd $@
 	@$(MAKE) -C boomerang $@
 	@$(MAKE) -C jbctl $@
 	@$(MAKE) -C idownloadd $@
@@ -123,10 +121,11 @@ clean:
 	@$(MAKE) -C rootlesshooks $@
 	@$(MAKE) -C dyldhook $@
 	@$(MAKE) -C dopamine $@
-	@$(MAKE) -C hookd $@
+	@$(MAKE) -C bootstrapfs $@
+	@$(MAKE) -C makerw $@
 	@rm -rf .build
 	@rm -rf .include
 	@rm -rf basebin.tar
 	@rm -rf basebin.tc
 
-.PHONY: clean .build .include ChOma XPF MachOMerger opainject libjailbreak systemhook forkfix launchdhook hookd boomerang jbctl idownloadd watchdoghook rootlesshooks basebin.tc dyldhook basebin.tar
+.PHONY: clean .build .include ChOma XPF MachOMerger opainject libjailbreak systemhook forkfix launchdhook hookd boomerang jbctl idownloadd watchdoghook rootlesshooks dopamine bootstrapfs makerw basebin.tc dyldhook basebin.tar
