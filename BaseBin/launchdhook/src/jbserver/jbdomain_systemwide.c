@@ -114,20 +114,20 @@ CS_SuperBlob *siginfo_resolve_superblob(struct siginfo *siginfo, int pid, int fd
 			uintptr_t superblobEnd   = superblobStart + superblobSize;
 			struct stat st = {};
 
-        	if (fstat(fd, &st) != 0) break;
-			if (superblobEnd > st.st_size) break;
-			if (lseek(fd, superblobStart, SEEK_SET) != superblobStart) break;
-			if (read(fd, superblob, superblobSize) != superblobSize) break;
-
-			success = true;
+        	if (fstat(fd, &st) == 0 && superblobEnd <= st.st_size && 
+				lseek(fd, superblobStart, SEEK_SET) == superblobStart && 
+				read(fd, superblob, superblobSize) == superblobSize) {
+				success = true;
+			}
+			break;
 		}
 		case SIGNATURE_SOURCE_PROC: {
 			uint64_t proc = proc_find(pid);
 
-			if (!proc) break;
-			if (proc_vreadbuf(proc, siginfo->signature.fs_blob_start, superblob, superblobSize) != 0) break;
-
-			success = true;
+			if (proc && proc_vreadbuf(proc, siginfo->signature.fs_blob_start, superblob, superblobSize) == 0) {
+				success = true;
+			}
+			break;
 		}
 	}
 
@@ -469,10 +469,10 @@ int systemwide_fork_fix(audit_token_t *parentToken, uint64_t childPid)
 
 			uint64_t childFirstEntry = childEntry, parentFirstEntry = parentEntry;
 			do {
-				uint64_t childStart  = kread_ptr(childEntry  + koffsetof(vm_map_entry, links) + koffsetof(vm_map_links, min));
-				uint64_t childEnd    = kread_ptr(childEntry  + koffsetof(vm_map_entry, links) + koffsetof(vm_map_links, max));
-				uint64_t parentStart = kread_ptr(parentEntry + koffsetof(vm_map_entry, links) + koffsetof(vm_map_links, min));
-				uint64_t parentEnd   = kread_ptr(parentEntry + koffsetof(vm_map_entry, links) + koffsetof(vm_map_links, max));
+				uint64_t childStart  = kread64(childEntry  + koffsetof(vm_map_entry, links) + koffsetof(vm_map_links, min));
+				uint64_t childEnd    = kread64(childEntry  + koffsetof(vm_map_entry, links) + koffsetof(vm_map_links, max));
+				uint64_t parentStart = kread64(parentEntry + koffsetof(vm_map_entry, links) + koffsetof(vm_map_links, min));
+				uint64_t parentEnd   = kread64(parentEntry + koffsetof(vm_map_entry, links) + koffsetof(vm_map_links, max));
 
 				if (parentStart < childStart) {
 					parentEntry = kread_ptr(parentEntry + koffsetof(vm_map_entry, links) + koffsetof(vm_map_links, next));
