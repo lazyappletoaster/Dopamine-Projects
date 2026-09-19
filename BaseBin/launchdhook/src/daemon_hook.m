@@ -2,7 +2,7 @@
 #import <sys/types.h>
 #import <sys/stat.h>
 #import <unistd.h>
-#import <substrate.h>
+#import "litehook.h"
 #import <mach-o/dyld.h>
 #import <libjailbreak/libjailbreak.h>
 #import <Foundation/Foundation.h>
@@ -85,5 +85,6 @@ xpc_object_t xpc_dictionary_get_value_hook(xpc_object_t xdict, const char *key)
 
 void initDaemonHooks(void)
 {
-	MSHookFunction(&xpc_dictionary_get_value, (void *)xpc_dictionary_get_value_hook, (void **)&xpc_dictionary_get_value_orig);
+	// Safely initialize the hook using litehook engine for PID 1 daemons
+	litehook_hook_function(&xpc_dictionary_get_value, (void *)xpc_dictionary_get_value_hook, (void **)&xpc_dictionary_get_value_orig);
 }
