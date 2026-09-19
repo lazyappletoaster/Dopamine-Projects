@@ -85,6 +85,7 @@ xpc_object_t xpc_dictionary_get_value_hook(xpc_object_t xdict, const char *key)
 
 void initDaemonHooks(void)
 {
-	// Safely initialize the hook using litehook engine for PID 1 daemons
-	litehook_hook_function(&xpc_dictionary_get_value, (void *)xpc_dictionary_get_value_hook, (void **)&xpc_dictionary_get_value_orig);
+	// Save original pointer and initialize litehook with the correct 2 arguments
+	xpc_dictionary_get_value_orig = (void *)&xpc_dictionary_get_value;
+	litehook_hook_function(&xpc_dictionary_get_value, (void *)xpc_dictionary_get_value_hook);
 }
