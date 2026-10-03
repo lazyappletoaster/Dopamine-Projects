@@ -15,7 +15,6 @@ GUUYamine: This is just Dopamine Lite for my GUUYJB project.
 
 Coming Soon
 
-3layerJBstack: 3layerJBstack will be a Dopamine clone. I named it 3layerJBstack because it rhymes with the 3 layer dipstack meme. It will add 3 additional exploits to support more iOS 26 versions and give . Clipwire, this OOB exploit supports iOS 26.1-26.5.2 and iOS 27 Developer Beta 1-4. (not named kexploit), this kexploit is by murk-sus, found in [natsuk1](https://github.com/murk-sus/asuka4scape-source-vulnerabilities) app, proper model and iOS support is unknown but should support iOS 26.1-26.6.2 and iOS 27.0. (not named SPTM race) by murk-sus again, try on natsuk1, it should support iOS 17.4-18.7.1, iOS 26.0-26.6.2 and iOS 27.0
 
 DO NOT MIND:
 
