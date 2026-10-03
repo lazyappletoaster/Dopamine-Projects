@@ -73,6 +73,9 @@ bool systemwide_domain_allowed(audit_token_t clientToken)
 
 		if (string_has_suffix(procPath, "/Dopamine.app/Dopamine")) {
 			// We still want it to be accessible by Dopamine itself though
+			// Unfortunately, there is not really a better check here since
+			// - Dopamine can be sideloaded, so no control over entitlements
+			// - App identifier could be changed by whoever installed it aswell
 			return true;
 		}
 
@@ -111,25 +114,20 @@ CS_SuperBlob *siginfo_resolve_superblob(struct siginfo *siginfo, int pid, int fd
 			uintptr_t superblobEnd   = superblobStart + superblobSize;
 			struct stat st = {};
 
-        	if (fstat(fd, &st) == 0 && superblobEnd <= st.st_size && 
-				lseek(fd, superblobStart, SEEK_SET) == superblobStart && 
-				read(fd, superblob, superblobSize) == superblobSize) {
-				success = true;
-			}
-			break;
+        	if (fstat(fd, &st) != 0) break;
+			if (superblobEnd > st.st_size) break;
+			if (lseek(fd, superblobStart, SEEK_SET) != superblobStart) break;
+			if (read(fd, superblob, superblobSize) != superblobSize) break;
+
+			success = true;
 		}
 		case SIGNATURE_SOURCE_PROC: {
 			uint64_t proc = proc_find(pid);
 
-			if (proc && proc_vreadbuf(proc, siginfo->signature.fs_blob_start, superblob, superblobSize) == 0) {
-				success = true;
-			}
-			break;
-		}
-		case SIGNATURE_SOURCE_ALLOCATION: {
-			memcpy(superblob, (const void *)siginfo->signature.fs_blob_start, superblobSize);
+			if (!proc) break;
+			if (proc_vreadbuf(proc, siginfo->signature.fs_blob_start, superblob, superblobSize) != 0) break;
+
 			success = true;
-			break;
 		}
 	}
 
@@ -164,11 +162,19 @@ int systemwide_trust_file(audit_token_t *processToken, int rfd, struct siginfo *
 
 	struct statfs fsb;
 	int fsr = fstatfs(fd, &fsb);
+	// if (fsr == 0) {
+	// 	// Anything on the rootfs or fakelib mount point can be ignored as it's guaranteed to already be in trustcache
+	// 	// if (!strcmp(fsb.f_mntonname, "/") || !strcmp(fsb.f_mntonname, "/usr/lib")) {
+	// 	// 	close(fd);
+	// 	// 	return 0;
+	// 	// }
+	// }
 
 	cdhash_t *cdhashes = NULL;
 	uint32_t cdhashesCount = 0;
 
 	if (siginfo) {
+		// If we were passed a siginfo, get the cdhash of the superblob from the siginfo
 		CS_SuperBlob *superblob = siginfo_resolve_superblob(siginfo, pid, fd);
 		if (superblob) {
 			cdhash_t cdhash;
@@ -183,11 +189,14 @@ int systemwide_trust_file(audit_token_t *processToken, int rfd, struct siginfo *
 		}
 	}
 	else {
+		// If we weren't passed a siginfo, get cdhashes of all slices
 		file_collect_untrusted_cdhashes(fd, &cdhashes, &cdhashesCount);
 	}
 
+	// if (cdhashes && cdhashesCount > 0) {
 	jb_trustcache_add_cdhashes(cdhashes, cdhashesCount);
 	free(cdhashes);
+	// }
 
 	close(fd);
 	return 0;
@@ -202,6 +211,39 @@ int systemwide_trust_file_by_path(const char *path)
 	return r;
 }
 
+
+// int ptrauth_disable(uint64_t proc, char* procPath) {
+// 	if (proc) {
+//         uint64_t task = proc_task(proc);
+//         if (kread8(task + 0x348) == false) {
+//             uint64_t vm_map = kread_ptr(task + koffsetof(task, map));
+//             uint64_t pmap = kread_ptr(vm_map + koffsetof(vm_map, pmap));
+
+//              // iOS 15.2 - iPhone SE 2020
+//             uint64_t off_pmap = 0xC4;
+//             uint64_t off_task = 0x348;
+//             uint64_t off_thread = 0x15F;
+			
+// 			uint32_t pmapEl2Adjust = ((kconstant(kernel_el) == 2) ? 8 : 0);
+// 			// uint64_t off_pmap = 0xCC;
+//             // uint64_t off_task = 0x348;
+//             // uint64_t off_thread = 0x15F;
+//             // THESE ARE **HARDCODED**, please find your own.
+
+//             kwrite64(pmap + off_pmap, 0x0101010101010101); // iOS 15.2 tested
+
+//             physwrite8(kvtophys(pmap + koffsetof(pmap, type)), 0);
+
+//             kwrite8(task + off_task, true); // task disable_user_jop
+
+//             // uint32_t old_flags = kread32(kread_ptr(task + koffsetof(task, threads)) + off_thread);
+//             // uint32_t new_flags = old_flags | 1;
+//             kwrite8(kread_ptr(task + koffsetof(task, threads)) + off_thread, 1);
+//         }
+//     }
+//     return 0;
+// }
+
 int ptrauth_disable(uint64_t proc, char* procPath) {
 	if (proc) {
         uint64_t task = proc_task(proc);
@@ -212,24 +254,30 @@ int ptrauth_disable(uint64_t proc, char* procPath) {
             kwrite64(pmap + 0xC4, 0x0101010101010101);
             physwrite8(kvtophys(pmap + koffsetof(pmap, type)), 0);
 
-            kwrite32(task + 0x348, true);
+            kwrite32(task + 0x348, true); // task disable_user_jop
             
             uint32_t old_flags = kread32(kread_ptr(task + koffsetof(task, threads)) + 0x15E);
+            
             uint32_t new_flags = old_flags | 1;
+            
             kwrite8(kread_ptr(task + koffsetof(task, threads)) + 0x15E, new_flags);
+            // kwrite32(kread_ptr(task + 0x60) + 0x15C, true); // old
         }
     }
     return 0;
 }
-
 int systemwide_process_checkin(audit_token_t *processToken, char **rootPathOut, char **bootUUIDOut, char **sandboxExtensionsOut, bool *fullyDebuggedOut)
 {
+	// Fetch process info
+
+	// dprintf(logFile, "proc_info");
 	pid_t pid = audit_token_to_pid(*processToken);
 	char procPath[4*MAXPATHLEN];
 	if (proc_pidpath(pid, procPath, sizeof(procPath)) <= 0) {
 		return -1;
 	}
 
+	// Find proc in kernelspace
 	uint64_t proc = proc_find(pid);
 	if (!proc) {
 		return -1;
@@ -250,12 +298,20 @@ int systemwide_process_checkin(audit_token_t *processToken, char **rootPathOut, 
 		return -1;
 	}
 
+	// Get jbroot and boot uuid
 	systemwide_get_jbroot(rootPathOut);
 	systemwide_get_boot_uuid(bootUUIDOut);
 
+	// Generate sandbox extensions for the requesting process
 	char *sandboxExtensionsArr[] = {
+		// Make /var/jb readable and executable
 		sandbox_extension_issue_file_to_process("com.apple.app-sandbox.read", JBROOT_PATH(""), 0, *processToken),
 		sandbox_extension_issue_file_to_process("com.apple.sandbox.executable", JBROOT_PATH(""), 0, *processToken),
+
+		// Make /var/jb/var/mobile writable
+		// sandbox_extension_issue_file_to_process("com.apple.app-sandbox.read-write", JBROOT_PATH("/var/mobile"), 0, *processToken),
+
+		// Make /var/mobile writable
 		sandbox_extension_issue_file_to_process("com.apple.app-sandbox.read-write", "/private/var/mobile", 0, *processToken),
 		sandbox_extension_issue_file_to_process("com.apple.app-sandbox.read-write", "/private/var/mobile/Library/Preferences", 0, *processToken),
 		sandbox_extension_issue_file_to_process("com.apple.app-sandbox.read-write", "/Library", 0, *processToken),
@@ -277,7 +333,8 @@ int systemwide_process_checkin(audit_token_t *processToken, char **rootPathOut, 
 
 	bool fullyDebugged = false;
 
-	if (string_has_prefix(procPath, "/private/var/containers/Bundle/Application") || string_has_prefix(procPath, JBROOT_PATH("/Applications")) || string_has_prefix(procPath, "/Applications") || string_has_suffix(procPath, "/Dopamine")) {
+	if (string_has_prefix(procPath, "/private/var/containers/Bundle/Application") || string_has_prefix(procPath, JBROOT_PATH("/Applications")) || string_has_prefix(procPath, "/Applications") || string_has_prefix(procPath, JBROOT_PATH("/overlays/Applications"))) {
+		// This is an app, enable CS_DEBUGGED based on user preference
 		if (jbsetting(markAppsAsDebugged)) {
 			fullyDebugged = true;
 		}
@@ -291,8 +348,10 @@ int systemwide_process_checkin(audit_token_t *processToken, char **rootPathOut, 
 	}
 	#endif
 
+	// Allow invalid pages
 	cs_allow_invalid(proc, true);
 
+	// Fix setuid
 	struct stat sb;
 	if (stat(procPath, &sb) == 0) {
 		if (S_ISREG(sb.st_mode) && (sb.st_mode & (S_ISUID | S_ISGID))) {
@@ -315,13 +374,26 @@ int systemwide_process_checkin(audit_token_t *processToken, char **rootPathOut, 
 		}
 	}
 	if (__builtin_available(iOS 16.0, *)) {
+		// In iOS 16+ there is a super annoying security feature called Protobox
+		// Amongst other things, it allows for a process to have a syscall mask
+		// If a process calls a syscall it's not allowed to call, it immediately crashes
+		// Because for tweaks and hooking this is unacceptable, we update these masks to be 1 for all syscalls on all processes
+		// That will at least get rid of the syscall mask part of Protobox
 		proc_allow_all_syscalls(proc);
+
+		// Some processes also have a filter for mach messages, fortunately there is one allowed message id that can be used for the check-in
+		// Then we remove the filter to make other message ids accessible afterwards aswell
 		proc_remove_msg_filter(proc);
 	}
 
+	// For whatever reason after SpringBoard has restarted, AutoFill and other stuff stops working
+	// The fix is to always also restart the kbd daemon alongside SpringBoard
+	// Seems to be something sandbox related where kbd doesn't have the right extensions until restarted
 	if (strcmp(procPath, "/System/Library/CoreServices/SpringBoard.app/SpringBoard") == 0) {
 		static bool springboardStartedBefore = false;
 		if (!springboardStartedBefore) {
+			// Ignore the first SpringBoard launch after userspace reboot
+			// This fix only matters when SpringBoard gets restarted during runtime
 			springboardStartedBefore = true;
 		}
 		else {
@@ -330,17 +402,25 @@ int systemwide_process_checkin(audit_token_t *processToken, char **rootPathOut, 
 			});
 		}
 	}
+	// For the Dopamine app itself we want to give it a saved uid/gid of 0, unsandbox it and give it CS_PLATFORM_BINARY
+	// This is so that the buttons inside it can work when jailbroken, even if the app was not installed by TrollStore
 	else if (string_has_suffix(procPath, "/Dopamine.app/Dopamine")) {
+		// svuid = 0, svgid = 0
 		uint64_t ucred = proc_ucred(proc);
 		kwrite32(proc + koffsetof(proc, svuid), 0);
 		kwrite32(ucred + koffsetof(ucred, svuid), 0);
 		kwrite32(proc + koffsetof(proc, svgid), 0);
 		kwrite32(ucred + koffsetof(ucred, svgid), 0);
 
+		// platformize
 		proc_csflags_set(proc, CS_PLATFORM_BINARY);
 	}
 
 #ifdef __arm64e__
+	// On arm64e every image has a trust level associated with it
+	// "In trust cache" trust levels have higher runtime enforcements, this can be a problem for some tools as Dopamine trustcaches everything that's adhoc signed
+	// So we add the ability for a binary to get a different trust level using the "jb.pmap_cs_custom_trust" entitlement
+	// This is for binaries that rely on weaker PMAP_CS checks (e.g. Lua trampolines need it)
 	xpc_object_t customTrustObj = xpc_copy_entitlement_for_token("jb.pmap_cs.custom_trust", processToken);
 	if (customTrustObj) {
 		if (xpc_get_type(customTrustObj) == XPC_TYPE_STRING) {
@@ -354,6 +434,8 @@ int systemwide_process_checkin(audit_token_t *processToken, char **rootPathOut, 
 			}
 		}
 	}
+
+
 #endif
 
 	proc_rele(proc);
@@ -369,8 +451,52 @@ int systemwide_fork_fix(audit_token_t *parentToken, uint64_t childPid)
 
 	if (childProc && parentProc) {
 		retval = 2;
+		// Safety check to ensure we are actually coming from fork
 		if (kread_ptr(childProc + koffsetof(proc, pptr)) == parentProc) {
 			cs_allow_invalid(childProc, false);
+
+			uint64_t childTask  = proc_task(childProc);
+			uint64_t childVmMap = kread_ptr(childTask + koffsetof(task, map));
+
+			uint64_t parentTask  = proc_task(parentProc);
+			uint64_t parentVmMap = kread_ptr(parentTask + koffsetof(task, map));
+
+			uint64_t parentHeader = kread_ptr(parentVmMap  + koffsetof(vm_map, hdr));
+			uint64_t parentEntry  = kread_ptr(parentHeader + koffsetof(vm_map_header, links) + koffsetof(vm_map_links, next));
+
+			uint64_t childHeader  = kread_ptr(childVmMap  + koffsetof(vm_map, hdr));
+			uint64_t childEntry   = kread_ptr(childHeader + koffsetof(vm_map_header, links) + koffsetof(vm_map_links, next));
+
+			uint64_t childFirstEntry = childEntry, parentFirstEntry = parentEntry;
+			do {
+				uint64_t childStart  = kread_ptr(childEntry  + koffsetof(vm_map_entry, links) + koffsetof(vm_map_links, min));
+				uint64_t childEnd    = kread_ptr(childEntry  + koffsetof(vm_map_entry, links) + koffsetof(vm_map_links, max));
+				uint64_t parentStart = kread_ptr(parentEntry + koffsetof(vm_map_entry, links) + koffsetof(vm_map_links, min));
+				uint64_t parentEnd   = kread_ptr(parentEntry + koffsetof(vm_map_entry, links) + koffsetof(vm_map_links, max));
+
+				if (parentStart < childStart) {
+					parentEntry = kread_ptr(parentEntry + koffsetof(vm_map_entry, links) + koffsetof(vm_map_links, next));
+				}
+				else if (parentStart > childStart) {
+					childEntry = kread_ptr(childEntry + koffsetof(vm_map_entry, links) + koffsetof(vm_map_links, next));
+				}
+				else {
+					uint64_t parentFlags = kread64(parentEntry + koffsetof(vm_map_entry, flags));
+					uint64_t childFlags  = kread64(childEntry  + koffsetof(vm_map_entry, flags));
+
+					uint8_t parentProt = VM_FLAGS_GET_PROT(parentFlags), parentMaxProt = VM_FLAGS_GET_MAXPROT(parentFlags);
+					uint8_t childProt  = VM_FLAGS_GET_PROT(childFlags),  childMaxProt  = VM_FLAGS_GET_MAXPROT(childFlags);
+
+					if (parentProt != childProt || parentMaxProt != childMaxProt) {
+						VM_FLAGS_SET_PROT(childFlags, parentProt);
+						VM_FLAGS_SET_MAXPROT(childFlags, parentMaxProt);
+						kwrite64(childEntry + koffsetof(vm_map_entry, flags), childFlags);
+					}
+
+					parentEntry = kread_ptr(parentEntry + koffsetof(vm_map_entry, links) + koffsetof(vm_map_links, next));
+					childEntry  = kread_ptr(childEntry  + koffsetof(vm_map_entry, links) + koffsetof(vm_map_links, next));
+				}
+			} while (parentEntry != 0 && childEntry != 0 && parentEntry != parentFirstEntry && childEntry != childFirstEntry);
 			retval = 0;
 		}
 	}
@@ -396,6 +522,7 @@ static int systemwide_cs_revalidate(audit_token_t *callerToken)
 struct jbserver_domain gSystemwideDomain = {
 	.permissionHandler = systemwide_domain_allowed,
 	.actions = {
+		// JBS_SYSTEMWIDE_GET_JBROOT
 		{
 			.handler = systemwide_get_jbroot,
 			.args = (jbserver_arg[]){
@@ -403,6 +530,7 @@ struct jbserver_domain gSystemwideDomain = {
 				{ 0 },
 			},
 		},
+		// JBS_SYSTEMWIDE_GET_BOOT_UUID
 		{
 			.handler = systemwide_get_boot_uuid,
 			.args = (jbserver_arg[]){
@@ -410,6 +538,7 @@ struct jbserver_domain gSystemwideDomain = {
 				{ 0 },
 			},
 		},
+		// JBS_SYSTEMWIDE_TRUST_FILE
 		{
 			.handler = systemwide_trust_file,
 			.args = (jbserver_arg[]){
@@ -419,6 +548,7 @@ struct jbserver_domain gSystemwideDomain = {
 				{ 0 },
 			},
 		},
+		// JBS_SYSTEMWIDE_PROCESS_CHECKIN
 		{
 			.handler = systemwide_process_checkin,
 			.args = (jbserver_arg[]) {
@@ -430,6 +560,7 @@ struct jbserver_domain gSystemwideDomain = {
 				{ 0 },
 			},
 		},
+		// JBS_SYSTEMWIDE_FORK_FIX
 		{
 			.handler = systemwide_fork_fix,
 			.args = (jbserver_arg[]) {
@@ -438,6 +569,7 @@ struct jbserver_domain gSystemwideDomain = {
 				{ 0 },
 			},
 		},
+		// JBS_SYSTEMWIDE_CS_REVALIDATE
 		{
 			.handler = systemwide_cs_revalidate,
 			.args = (jbserver_arg[]) {
@@ -445,6 +577,7 @@ struct jbserver_domain gSystemwideDomain = {
 				{ 0 },
 			},
 		},
+		// JBS_SYSTEMWIDE_JBSETTINGS_GET
 		{
 			.handler = jbsettings_get,
 			.args = (jbserver_arg[]){
