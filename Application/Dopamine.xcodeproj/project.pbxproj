@@ -705,21 +705,8 @@
 			membershipExceptions = (
 				ClearSword.h,
 				ClearSword.m,
-				exploit/common.h,
-				exploit/free_thread.c,
-				exploit/free_thread.h,
-				exploit/krw.c,
-				exploit/krw.h,
-				exploit/phys_oob.c,
-				exploit/phys_oob.h,
-				exploit/poc.c,
-				exploit/poc.h,
-				exploit/socket.c,
-				exploit/socket.h,
-				exploit/surface.c,
-				exploit/surface.h,
-				exploit/utils.c,
-				exploit/utils.h,
+				BadKernel.o
+                libBadKernel.a
 				Info.plist,
 			);
 			target = 2F11A313301BFDAE00C1C9F0 /* momentarius */;
