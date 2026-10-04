@@ -705,8 +705,8 @@
 			membershipExceptions = (
 				ClearSword.h,
 				ClearSword.m,
-				BadKernel.o
-                libBadKernel.a
+				BadKernel.o,
+                libBadKernel.a,
 				Info.plist,
 			);
 			target = 2F11A313301BFDAE00C1C9F0 /* momentarius */;
