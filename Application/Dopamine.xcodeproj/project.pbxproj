@@ -705,7 +705,6 @@
 			membershipExceptions = (
 				ClearSword.h,
 				ClearSword.m,
-				BadKernel.o,
                 libBadKernel.a,
 				Info.plist,
 			);
