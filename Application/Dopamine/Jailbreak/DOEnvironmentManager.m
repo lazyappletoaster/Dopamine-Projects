@@ -157,26 +157,6 @@ extern char **environ;
 
     [self locateJailbreakRoot];
 
-    // DOPACLEAN logic to move a corrupted dopamine directory to a different path to at least make jailbreaking work again
-    // if (gSystemInfo.jailbreakInfo.rootPath) {
-    //     NSString *randomizedJailbreakPath = [NSString stringWithUTF8String:gSystemInfo.jailbreakInfo.rootPath].stringByDeletingLastPathComponent;
-    //     NSString *characterSet = @"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
-    //     NSUInteger stringLen = 6;
-    //     NSMutableString *randomString = [NSMutableString stringWithCapacity:stringLen];
-    //     for (NSUInteger i = 0; i < stringLen; i++) {
-    //         NSUInteger randomIndex = arc4random_uniform((uint32_t)[characterSet length]);
-    //         unichar randomCharacter = [characterSet characterAtIndex:randomIndex];
-    //         [randomString appendFormat:@"%C", randomCharacter];
-    //     }
-        
-    //     NSString *activePrebootPath = [self activePrebootPath];
-    //     NSString *orphanedName = [NSString stringWithFormat:@"orphaned-%@", randomString];
-    //     NSString *orphanedPath = [activePrebootPath stringByAppendingPathComponent:orphanedName];
-    //     [[NSFileManager defaultManager] moveItemAtPath:randomizedJailbreakPath toPath:orphanedPath error:nil];
-    // }
-
-    // return [NSError errorWithDomain:@"Cleaned" code:1 userInfo:nil];
-
     if (!gSystemInfo.jailbreakInfo.rootPath || _bootstrapNeedsMigration) {
         [_bootstrapper ensurePrivatePrebootIsWritable];
 
@@ -249,7 +229,7 @@ extern char **environ;
     
     if ([self isArm64e]) {
         if (cpuFamily == CPUFAMILY_ARM_VORTEX_TEMPEST || cpuFamily == CPUFAMILY_ARM_LIGHTNING_THUNDER) {
-            return @"iOS 15.0 - 18.7.1, 26.0 - 26.0.1 (A12/A13, PPL)";
+            return @"iOS 15.0 - 18.7.1, 26.0 - 27.2 (A12/A13, PPL)";
         }
         else if (![self isSPTM]) {
             return @"iOS 15.0 - 17.3.1 (PPL)";
@@ -387,7 +367,7 @@ extern char **environ;
     argBuf[i++] = NULL;
     
     posix_spawn_file_actions_t act = NULL;
-	posix_spawn_file_actions_init(&act);
+    posix_spawn_file_actions_init(&act);
     posix_spawnattr_t attr = NULL;
     posix_spawnattr_init(&attr);
      
@@ -408,12 +388,9 @@ extern char **environ;
         [self runUnsandboxed:^{
             r = posix_spawn(&pid, argBuf[0], &act, &attr, (char *const *)argBuf, (char *const *)environ);
             if (needsLegacySolution) {
-                // Legacy solution is a gamble, which is why it was removed and superseeded by --waitfor
-                // But if jailbroken with <3.0.5, jbctl doesn't support --waitfor yet
                 kill(pid, SIGCONT);
             }
         }];
-        // We *NEED* to leave this block on iOS 17+ to avoid a panic, --waitfor ensures this always happens
     }];
 
     posix_spawnattr_destroy(&attr);
@@ -425,7 +402,6 @@ extern char **environ;
 
     if (!needsLegacySolution) {
         if (r == 0) {
-            // We left the root/unsandbox block, now resume jbctl by writing to pipe
             char w = 'w';
             write(waitPipe[1], &w, sizeof(w));
         }
@@ -494,7 +470,6 @@ extern char **environ;
         }];
     }];
 }
-
 
 - (void)changeMobilePassword:(NSString *)newPassword
 {
@@ -759,7 +734,6 @@ extern char **environ;
     return nil;
 }
 
-
 - (BOOL)isPACBypassRequired
 {
     if (![self isArm64e]) return NO;
@@ -777,11 +751,6 @@ extern char **environ;
 
 - (BOOL)isSupported
 {
-    //cpu_subtype_t cpuFamily = 0;
-    //size_t cpuFamilySize = sizeof(cpuFamily);
-    //sysctlbyname("hw.cpufamily", &cpuFamily, &cpuFamilySize, NULL, 0);
-    //if (cpuFamily == CPUFAMILY_ARM_TYPHOON) return false; // A8X is unsupported for now (due to 4k page size)
-    
     DOExploitManager *exploitManager = [DOExploitManager sharedManager];
     if ([exploitManager availableExploitsForType:EXPLOIT_TYPE_KERNEL].count) {
         if (![self isPACBypassRequired] || [exploitManager availableExploitsForType:EXPLOIT_TYPE_PAC].count) {
@@ -840,7 +809,7 @@ extern char **environ;
     if (![self isJailbroken] && getuid() != 0) {
         int r = [self runTrollStoreAction:@"delete-bootstrap"];
         if (r != 0) {
-            // TODO: maybe handle error
+            // TODO: handle error if needed
         }
         return nil;
     }
@@ -854,7 +823,6 @@ extern char **environ;
         return error;
     }
     else {
-        // Let's hope for the best
         return [_bootstrapper deleteBootstrap];
     }
 }
