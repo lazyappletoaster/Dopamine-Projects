@@ -704,7 +704,6 @@
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
 				ClearSword.h,
-				ClearSword.m,
                 libBadKernel.a,
 				Info.plist,
 			);
